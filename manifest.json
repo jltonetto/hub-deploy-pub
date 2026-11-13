@@ -1,0 +1,22 @@
+{
+ "hub/connectors/mercadolivre.py": {
+  "sha256": "30fe9149cb96106dbe000aca46c1790230bc27669220e4d090f2a8e9494319a9",
+  "bytes": 20679
+ },
+ "hub/db.py": {
+  "sha256": "d8e2ab7a24b529acaf64e49a13a8ae67badb928d68929c14e1640d070154a725",
+  "bytes": 22780
+ },
+ "hub/api.py": {
+  "sha256": "919f431fb5c92ff654b2706b095d07ad17ebd798a285670037d6dec548a6cedb",
+  "bytes": 29737
+ },
+ "db/schema.sql": {
+  "sha256": "1dbaca6ea2cf604fca413398b6c93c6dc18663862894b93279e63ccca373d0a4",
+  "bytes": 9536
+ },
+ "hub/service.py": {
+  "sha256": "43babdebda7d574b778be0734f2987d6c005dd929923c1ebf4a5030484fbeb5e",
+  "bytes": 76423
+ }
+}
