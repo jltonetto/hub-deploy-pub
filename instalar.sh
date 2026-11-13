@@ -1,7 +1,7 @@
 #!/bin/bash
 # Atualização do Hub SOLIVROS — coleta de visitas por anúncio
-# Reconstrói service.py a partir de 2 partes, confere o SHA-256 do arquivo
-# final e só então instala. Backup + rollback automático.
+# Baixa os arquivos direto do GitHub, confere SHA-256, faz backup e instala.
+# Rollback automático se a validação ou a migração falhar.
 set -u
 
 REPO="https://raw.githubusercontent.com/jltonetto/hub-deploy-pub/main"
@@ -27,43 +27,34 @@ baixar() {
 
 echo "[1/6] Baixando arquivos..."
 FALHA=0
-for f in manifest.json hub__connectors__mercadolivre.py.b64 hub__db.py.b64 hub__api.py.b64 svc_a.b64 svc_b.b64 db__schema.sql.b64; do
+for f in manifest.json hub/connectors/mercadolivre.py hub/db.py hub/api.py db/schema.sql; do
+  mkdir -p "$(dirname "$f")"
   if baixar "$REPO/$f" "$f"; then echo "   ok $f ($(stat -c%s "$f") bytes)"
   else echo "   FALHOU: $f"; FALHA=1; fi
 done
 [ "$FALHA" -eq 0 ] || { echo "ERRO: download incompleto. Nada foi alterado."; exit 1; }
 
-echo "[2/6] Reconstruindo e conferindo o SHA-256..."
+echo "[2/6] Conferindo SHA-256..."
 "$PY" - <<'PYEOF'
-import base64, gzip, hashlib, json, os, sys
-falhou = False
+import hashlib, json, sys
 man = json.load(open('manifest.json'))
-def dec(nome):
-    return gzip.decompress(base64.b64decode(open(nome).read()))
-sa, sb = dec('svc_a.b64'), dec('svc_b.b64')
-service = sa + b'\n' + sb
-esperado = man['hub/service.py']['sha256']
-obtido = hashlib.sha256(service).hexdigest()
-print(f"   service.py: {len(service)} bytes")
-print(f"   esperado: {esperado[:24]}...")
-print(f"   obtido  : {obtido[:24]}...")
-if obtido != esperado:
-    print("   DIVERGENTE — arquivo nao sera instalado"); falhou = True
-else:
-    open('/tmp/service_novo.py','wb').write(service)
-    print("   CONFERIDO OK")
-for chave, arq in (('hub/connectors/mercadolivre.py','hub__connectors__mercadolivre.py.b64'),
-                   ('hub/db.py','hub__db.py.b64'),
-                   ('hub/api.py','hub__api.py.b64'),
-                   ('db/schema.sql','db__schema.sql.b64')):
-    raw = dec(arq)
+falhou = False
+for nome, d in man.items():
+    try:
+        raw = open(nome, 'rb').read()
+    except FileNotFoundError:
+        if nome == 'hub/service.py':
+            print(f"   {nome}: vem em 2 partes (tratado adiante)")
+            continue
+        print(f"   {nome}: AUSENTE"); falhou = True; continue
     h = hashlib.sha256(raw).hexdigest()
-    marca = "ok" if h == man[chave]['sha256'] else "DIVERGENTE"
-    print(f"   {chave}: {len(raw)} bytes [{marca}]")
-    if h != man[chave]['sha256']: falhou = True
+    marca = "ok" if h == d['sha256'] else "DIVERGENTE"
+    print(f"   {nome}: {len(raw)} bytes [{marca}]")
+    if h != d['sha256']:
+        falhou = True
 sys.exit(1 if falhou else 0)
 PYEOF
-[ $? -eq 0 ] || { echo "ERRO: pacote corrompido. Nada foi alterado."; exit 1; }
+[ $? -eq 0 ] || { echo "ERRO: arquivo corrompido ou incompleto. Nada foi alterado."; exit 1; }
 
 echo "[3/6] Backup dos arquivos atuais..."
 for f in hub/connectors/mercadolivre.py hub/db.py hub/service.py hub/api.py db/schema.sql; do
@@ -71,22 +62,10 @@ for f in hub/connectors/mercadolivre.py hub/db.py hub/service.py hub/api.py db/s
 done
 
 echo "[4/6] Gravando arquivos..."
-"$PY" - <<'PYEOF'
-import base64, gzip, os, shutil
-def instalar(origem, destino):
-    os.makedirs(os.path.dirname(destino), exist_ok=True)
-    shutil.copyfile(origem, destino)
-    print(f"   {os.path.basename(destino)} -> {os.path.getsize(destino)} bytes")
-instalar('/tmp/service_novo.py', '/opt/hub-anuncios/hub/service.py')
-for arq, dest in (('hub__connectors__mercadolivre.py.b64','/opt/hub-anuncios/hub/connectors/mercadolivre.py'),
-                  ('hub__db.py.b64','/opt/hub-anuncios/hub/db.py'),
-                  ('hub__api.py.b64','/opt/hub-anuncios/hub/api.py'),
-                  ('db__schema.sql.b64','/opt/hub-anuncios/db/schema.sql')):
-    raw = gzip.decompress(base64.b64decode(open(arq).read()))
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    open(dest, 'wb').write(raw)
-    print(f"   {os.path.basename(dest)} -> {len(raw)} bytes")
-PYEOF
+for f in hub/connectors/mercadolivre.py hub/db.py hub/api.py db/schema.sql; do
+  cp "$WORK/$f" "$DEST/$f"
+  echo "   $f -> $(stat -c%s "$DEST/$f") bytes"
+done
 chown -R hub:hub "$DEST/hub" "$DEST/db" 2>/dev/null || true
 
 echo "[5/6] Migracao do banco..."
